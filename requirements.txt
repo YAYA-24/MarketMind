@@ -1,0 +1,38 @@
+# Agent 框架
+langchain>=0.3
+langchain-openai>=0.3
+langgraph>=0.2
+
+# 联网搜索 (直接 SDK，作为 MCP 不可用时的降级方案)
+langchain-tavily>=0.1
+
+# MCP Client (调用外部 MCP 服务)
+langchain-mcp-adapters>=0.2
+
+# 向量数据库 (RAG)
+chromadb>=0.5
+
+# A 股数据
+akshare>=1.14
+requests>=2.31
+
+# 技术指标
+pandas_ta>=0.3
+
+# K 线图
+mplfinance>=0.12
+matplotlib>=3.8
+
+# PDF 导入
+pymupdf>=1.24
+
+# MCP 协议
+mcp[cli]>=1.0
+
+# Web 后端
+fastapi>=0.115
+uvicorn>=0.30
+python-multipart>=0.0.9
+
+# 环境配置
+python-dotenv>=1.0

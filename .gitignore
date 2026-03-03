@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+
+# Environment
+.env
+
+# Data (runtime generated)
+data/chroma_db/
+data/charts/
+data/briefs/
+data/uploads/
+data/alerts.log
+data/monitor_rules.json
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Node / Frontend
+node_modules/
+web/dist/
+
+# Chainlit (legacy)
+.chainlit/
+.files/
+
+# 个人笔记（不上传）
+TECHNICAL_NOTES.md
