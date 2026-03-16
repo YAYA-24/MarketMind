@@ -5,8 +5,6 @@ K 线图生成 Skill。
 数据源：新浪财经历史 K 线 API。
 """
 
-import os
-import re
 import requests
 import pandas as pd
 import matplotlib
@@ -14,24 +12,21 @@ matplotlib.use('Agg')
 from langchain_core.tools import tool
 
 from src.config.settings import CHART_DIR
-SINA_HEADERS = {"Referer": "https://finance.sina.com.cn"}
-
-
-def _get_sina_prefix(symbol: str) -> str:
-    return f"sh{symbol}" if symbol.startswith("6") else f"sz{symbol}"
+from src.sina import SINA_HEADERS, get_sina_prefix, parse_sina_quote, get_sina_kline
 
 
 def _get_stock_name(symbol: str) -> str:
+    """获取股票名称用于图表标题。"""
     try:
-        sina_sym = _get_sina_prefix(symbol)
+        sina_sym = get_sina_prefix(symbol)
         r = requests.get(
             f"https://hq.sinajs.cn/list={sina_sym}",
             headers=SINA_HEADERS, timeout=5,
         )
         r.encoding = "gbk"
-        m = re.search(r'"([^"]*)"', r.text)
-        if m and m.group(1):
-            return m.group(1).split(",")[0]
+        data = parse_sina_quote(r.text)
+        if data:
+            return data["名称"]
     except Exception:
         pass
     return symbol
@@ -46,30 +41,16 @@ def generate_kline_chart(symbol: str, days: int = 60) -> str:
         days: 显示最近多少天的K线，默认60天
     """
     try:
-        import json
         import mplfinance as mpf
 
-        sina_sym = _get_sina_prefix(symbol)
-        url = "https://quotes.sina.cn/cn/api/jsonp_v2.php/var/CN_MarketDataService.getKLineData"
-        params = {"symbol": sina_sym, "scale": "240", "ma": "no", "datalen": str(days)}
-        r = requests.get(url, params=params, headers=SINA_HEADERS, timeout=15)
-
-        match = re.search(r'\((\[.*\])\)', r.text)
-        if not match:
+        df = get_sina_kline(symbol, datalen=days, scale=240)
+        if df.empty:
             return f"未获取到股票 {symbol} 的历史数据。"
 
-        rows = json.loads(match.group(1))
-        if not rows:
-            return f"未获取到股票 {symbol} 的数据。"
-
-        df = pd.DataFrame(rows)
         df = df.rename(columns={
             "day": "Date", "open": "Open", "close": "Close",
             "high": "High", "low": "Low", "volume": "Volume",
         })
-        for col in ["Open", "High", "Low", "Close"]:
-            df[col] = df[col].astype(float)
-        df["Volume"] = df["Volume"].astype(int)
         df["Date"] = pd.to_datetime(df["Date"])
         df = df.set_index("Date").sort_index()
 

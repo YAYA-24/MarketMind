@@ -3,7 +3,8 @@
     "a-stock-analyzer": {
       "command": "python",
       "args": ["mcp_server/server.py"],
-      "cwd": "${workspaceFolder}"
+      "cwd": "${workspaceFolder}",
+      "envFile": ".env"
     }
   }
 }

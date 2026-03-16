@@ -12,16 +12,7 @@ import time
 import akshare as ak
 from langchain_core.tools import tool
 
-
-def _retry(func, *args, max_retries=3, delay=2, **kwargs):
-    for attempt in range(max_retries):
-        try:
-            return func(*args, **kwargs)
-        except Exception as e:
-            if attempt < max_retries - 1:
-                time.sleep(delay * (attempt + 1))
-            else:
-                raise e
+from src.utils.retry import retry
 
 
 @tool
@@ -33,7 +24,7 @@ def get_financial_data(symbol: str) -> str:
     """
     try:
         # 个股基本信息（市值等）
-        info_df = _retry(ak.stock_individual_info_em, symbol=symbol)
+        info_df = retry(ak.stock_individual_info_em, symbol=symbol)
         info = dict(zip(info_df["item"], info_df["value"]))
 
         lines = [
@@ -57,7 +48,7 @@ def get_financial_data(symbol: str) -> str:
 
         # 主要财务指标
         try:
-            fin_df = _retry(ak.stock_financial_abstract_em, symbol=symbol)
+            fin_df = retry(ak.stock_financial_abstract_em, symbol=symbol)
             if fin_df is not None and not fin_df.empty:
                 latest = fin_df.iloc[0]
 

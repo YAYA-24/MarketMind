@@ -18,7 +18,7 @@ description: Query A-share stock real-time prices, historical K-line data, and m
 ## 数据源策略
 
 - **实时行情** → 新浪财经 API（快速稳定，GBK 编码）
-- **历史 K 线** → akshare（数据全面，有频率限制需重试）
+- **历史 K 线** → 新浪财经 API（quotes.sina.cn JSONP 接口）
 
 新浪 API 返回格式：`var hq_str_shXXXXXX="名称,今开,昨收,最新价,...";`
 

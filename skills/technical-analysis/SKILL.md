@@ -24,7 +24,7 @@ description: Calculate stock technical indicators including MA, MACD, KDJ, RSI, 
 ## 依赖
 
 - `pandas_ta`：技术指标计算
-- `akshare`：获取 120 天历史数据
+- 新浪财经 API：获取历史 K 线数据（quotes.sina.cn）
 
 ## 脚本
 

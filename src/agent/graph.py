@@ -22,8 +22,9 @@ from src.config.settings import (
     DEEPSEEK_MODEL,
     SYSTEM_PROMPT,
 )
+from src.skills import get_skill_descriptions
 from src.skills.stock_data import ALL_TOOLS as STOCK_TOOLS
-from src.skills.news_rag import KNOWLEDGE_RAG_TOOLS
+from src.skills.knowledge_rag import KNOWLEDGE_RAG_TOOLS
 from src.skills.technical import TECHNICAL_TOOLS
 from src.skills.financial import FINANCIAL_TOOLS
 from src.skills.kline_chart import KLINE_TOOLS
@@ -60,7 +61,11 @@ def chatbot(state: AgentState) -> dict:
     llm = build_llm()
     messages = state["messages"]
     if not messages or not isinstance(messages[0], SystemMessage):
-        messages = [SystemMessage(content=SYSTEM_PROMPT)] + list(messages)
+        prompt = SYSTEM_PROMPT
+        skill_desc = get_skill_descriptions()
+        if skill_desc:
+            prompt = prompt + "\n\n" + skill_desc
+        messages = [SystemMessage(content=prompt)] + list(messages)
     response = llm.invoke(messages)
     return {"messages": [response]}
 

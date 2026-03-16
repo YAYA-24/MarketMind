@@ -1,7 +1,7 @@
-"""Bridge → .cursor/skills/stock-monitor/scripts/monitor_skill.py"""
-from src.skills import _load
+"""Bridge → skills/stock-monitor/scripts/"""
+from src.skills import _load, SKILL_REGISTRY
 
-_m = _load('stock-monitor', 'monitor_skill')
+_m = _load("stock-monitor", SKILL_REGISTRY["stock-monitor"])
 add_stock_monitor = _m.add_stock_monitor
 list_stock_monitors = _m.list_stock_monitors
 remove_stock_monitor = _m.remove_stock_monitor

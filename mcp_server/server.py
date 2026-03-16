@@ -27,8 +27,17 @@ load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
 mcp = FastMCP("A股分析助手")
 
 
+def _invoke_skill(module: str, func: str, args: dict, error_msg: str) -> str:
+    """统一调用 src.skills 中的工具。"""
+    try:
+        mod = __import__(f"src.skills.{module}", fromlist=[func])
+        impl = getattr(mod, func)
+        return impl.invoke(args)
+    except Exception as e:
+        return f"{error_msg}: {e}"
+
+
 # ── 行情数据工具 ──────────────────────────────────────────
-# 复用 src.skills.stock_data
 
 @mcp.tool()
 def get_stock_price(symbol: str) -> str:
@@ -37,11 +46,7 @@ def get_stock_price(symbol: str) -> str:
     Args:
         symbol: 股票代码，6位数字，如 "600519" 代表贵州茅台
     """
-    try:
-        from src.skills.stock_data import get_stock_price as _impl
-        return _impl.invoke({"symbol": symbol})
-    except Exception as e:
-        return f"查询失败: {e}"
+    return _invoke_skill("stock_data", "get_stock_price", {"symbol": symbol}, "查询失败")
 
 
 @mcp.tool()
@@ -51,11 +56,7 @@ def get_multi_stock_prices(symbols: str) -> str:
     Args:
         symbols: 多个股票代码，用逗号分隔，如 "600519,000001,000858"
     """
-    try:
-        from src.skills.stock_data import get_multi_stock_prices as _impl
-        return _impl.invoke({"symbols": symbols})
-    except Exception as e:
-        return f"批量查询失败: {e}"
+    return _invoke_skill("stock_data", "get_multi_stock_prices", {"symbols": symbols}, "批量查询失败")
 
 
 @mcp.tool()
@@ -67,28 +68,29 @@ def get_stock_history(symbol: str, period: str = "daily", days: int = 30) -> str
         period: K线周期，可选 "daily"(日线)、"weekly"(周线)
         days: 查询最近多少天的数据，默认30天
     """
-    try:
-        from src.skills.stock_data import get_stock_history as _impl
-        return _impl.invoke({"symbol": symbol, "period": period, "days": days})
-    except Exception as e:
-        return f"查询历史数据失败: {e}"
+    return _invoke_skill("stock_data", "get_stock_history", {"symbol": symbol, "period": period, "days": days}, "查询历史数据失败")
 
 
 # ── 联网搜索工具 ──────────────────────────────────────────
-# 复用 src.skills.web_search
 
 @mcp.tool()
-def search_finance_news(query: str) -> str:
+def search_web(query: str) -> str:
     """联网搜索最新的财经新闻、市场动态、公司公告。
 
     Args:
         query: 搜索关键词，如 "贵州茅台 最新消息"、"A股 今日行情"
     """
-    try:
-        from src.skills.web_search import search_web as _impl
-        return _impl.invoke({"query": query})
-    except Exception as e:
-        return f"搜索失败: {e}"
+    return _invoke_skill("web_search", "search_web", {"query": query}, "搜索失败")
+
+
+@mcp.tool()
+def search_stock_news(stock_name: str) -> str:
+    """联网搜索某只股票的最新新闻和分析。
+
+    Args:
+        stock_name: 股票名称或代码，如 "贵州茅台"、"比亚迪"
+    """
+    return _invoke_skill("web_search", "search_stock_news", {"stock_name": stock_name}, "搜索失败")
 
 
 # ── 技术指标工具 ──────────────────────────────────────────
@@ -100,11 +102,7 @@ def get_technical_indicators(symbol: str) -> str:
     Args:
         symbol: 股票代码，6位数字
     """
-    try:
-        from src.skills.technical import get_technical_indicators as _impl
-        return _impl.invoke({"symbol": symbol})
-    except Exception as e:
-        return f"技术指标计算失败: {e}"
+    return _invoke_skill("technical", "get_technical_indicators", {"symbol": symbol}, "技术指标计算失败")
 
 
 # ── 财务数据工具 ──────────────────────────────────────────
@@ -116,11 +114,7 @@ def get_financial_data(symbol: str) -> str:
     Args:
         symbol: 股票代码，6位数字
     """
-    try:
-        from src.skills.financial import get_financial_data as _impl
-        return _impl.invoke({"symbol": symbol})
-    except Exception as e:
-        return f"财务数据查询失败: {e}"
+    return _invoke_skill("financial", "get_financial_data", {"symbol": symbol}, "财务数据查询失败")
 
 
 # ── K线图工具 ─────────────────────────────────────────────
@@ -133,15 +127,10 @@ def generate_kline_chart(symbol: str, days: int = 60) -> str:
         symbol: 股票代码
         days: 显示最近多少天，默认60
     """
-    try:
-        from src.skills.kline_chart import generate_kline_chart as _impl
-        return _impl.invoke({"symbol": symbol, "days": days})
-    except Exception as e:
-        return f"K线图生成失败: {e}"
+    return _invoke_skill("kline_chart", "generate_kline_chart", {"symbol": symbol, "days": days}, "K线图生成失败")
 
 
 # ── 知识库检索工具 ────────────────────────────────────────
-# 复用 src.skills.news_rag
 
 @mcp.tool()
 def search_investment_knowledge(query: str) -> str:
@@ -150,11 +139,44 @@ def search_investment_knowledge(query: str) -> str:
     Args:
         query: 检索问题，如 "什么是安全边际"、"如何分析公司护城河"
     """
-    try:
-        from src.skills.news_rag import search_investment_knowledge as _impl
-        return _impl.invoke({"query": query})
-    except Exception as e:
-        return f"知识库检索失败: {e}"
+    return _invoke_skill("knowledge_rag", "search_investment_knowledge", {"query": query}, "知识库检索失败")
+
+
+@mcp.tool()
+def get_knowledge_db_info() -> str:
+    """查看投资知识库的状态，包括已导入的文档数量。"""
+    return _invoke_skill("knowledge_rag", "get_knowledge_db_info", {}, "获取知识库状态失败")
+
+
+# ── 监控管理工具 ──────────────────────────────────────────
+
+@mcp.tool()
+def add_stock_monitor(symbol: str, condition: str, threshold: float, description: str = "") -> str:
+    """添加股票监控规则，当条件满足时提醒用户。
+
+    Args:
+        symbol: 股票代码，6位数字
+        condition: 条件类型，如 price_above/price_below/change_pct_above/change_pct_below
+        threshold: 阈值，如 90 表示 90 元或 90%
+        description: 可选描述
+    """
+    return _invoke_skill("monitor_skill", "add_stock_monitor", {"symbol": symbol, "condition": condition, "threshold": threshold, "description": description}, "添加监控失败")
+
+
+@mcp.tool()
+def list_stock_monitors() -> str:
+    """查看当前所有股票监控规则。"""
+    return _invoke_skill("monitor_skill", "list_stock_monitors", {}, "获取监控列表失败")
+
+
+@mcp.tool()
+def remove_stock_monitor(rule_id: int) -> str:
+    """删除指定的股票监控规则。
+
+    Args:
+        rule_id: 规则 ID，可通过 list_stock_monitors 查看
+    """
+    return _invoke_skill("monitor_skill", "remove_stock_monitor", {"rule_id": rule_id}, "删除监控失败")
 
 
 # ── 启动 Server ───────────────────────────────────────────

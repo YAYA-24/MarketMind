@@ -18,12 +18,12 @@ description: Generate candlestick (K-line) chart images with volume and moving a
 - 日 K 线蜡烛图（红涨绿跌，A 股配色）
 - 成交量柱状图
 - MA5 / MA10 / MA20 移动平均线
-- 输出路径：`./data/charts/{symbol}_kline.png`（150 DPI）
+- 输出路径：`data/charts/{symbol}_kline.png`（项目根目录下，150 DPI）
 
 ## 依赖
 
 - `mplfinance`：专业金融图表库
-- `akshare`：历史 K 线数据
+- 新浪财经 API：历史 K 线数据（quotes.sina.cn）
 
 ## 脚本
 

@@ -7,76 +7,11 @@ A 股行情数据 Skill。
 """
 
 import re
-import json
 import requests
 import pandas as pd
 from langchain_core.tools import tool
 
-SINA_HEADERS = {"Referer": "https://finance.sina.com.cn"}
-
-
-def _get_sina_prefix(symbol: str) -> str:
-    """根据股票代码判断交易所前缀：6开头=上海(sh)，其他=深圳(sz)。"""
-    return f"sh{symbol}" if symbol.startswith("6") else f"sz{symbol}"
-
-
-def get_sina_history(symbol: str, datalen: int = 60, scale: int = 240) -> pd.DataFrame:
-    """从新浪获取历史 K 线数据。
-
-    Args:
-        symbol: 6 位股票代码
-        datalen: 返回的 K 线条数
-        scale: K 线周期（分钟），240=日线，1200=周线
-    Returns:
-        DataFrame with columns: day, open, high, low, close, volume
-    """
-    sina_sym = _get_sina_prefix(symbol)
-    url = "https://quotes.sina.cn/cn/api/jsonp_v2.php/var/CN_MarketDataService.getKLineData"
-    params = {"symbol": sina_sym, "scale": str(scale), "ma": "no", "datalen": str(datalen)}
-    r = requests.get(url, params=params, headers=SINA_HEADERS, timeout=15)
-    r.encoding = "utf-8"
-
-    match = re.search(r'\((\[.*\])\)', r.text)
-    if not match:
-        return pd.DataFrame()
-
-    rows = json.loads(match.group(1))
-    if not rows:
-        return pd.DataFrame()
-
-    df = pd.DataFrame(rows)
-    for col in ["open", "high", "low", "close"]:
-        df[col] = df[col].astype(float)
-    df["volume"] = df["volume"].astype(int)
-    return df
-
-
-def _parse_sina_quote(raw: str) -> dict | None:
-    """解析新浪实时行情字符串。
-    格式: var hq_str_shXXXXXX="名称,今开,昨收,最新价,最高,最低,买一,卖一,成交量,成交额,...日期,时间,...";
-    """
-    match = re.search(r'"(.*)"', raw)
-    if not match or not match.group(1):
-        return None
-
-    fields = match.group(1).split(",")
-    if len(fields) < 32:
-        return None
-
-    return {
-        "名称": fields[0],
-        "今开": float(fields[1]),
-        "昨收": float(fields[2]),
-        "最新价": float(fields[3]),
-        "最高": float(fields[4]),
-        "最低": float(fields[5]),
-        "买一": float(fields[6]),
-        "卖一": float(fields[7]),
-        "成交量": int(fields[8]),
-        "成交额": float(fields[9]),
-        "日期": fields[30],
-        "时间": fields[31],
-    }
+from src.sina import SINA_HEADERS, get_sina_prefix, parse_sina_quote, get_sina_kline
 
 
 @tool
@@ -87,12 +22,12 @@ def get_stock_price(symbol: str) -> str:
         symbol: 股票代码，6位数字，例如 "600519" 代表贵州茅台，"000001" 代表平安银行
     """
     try:
-        sina_symbol = _get_sina_prefix(symbol)
+        sina_symbol = get_sina_prefix(symbol)
         url = f"https://hq.sinajs.cn/list={sina_symbol}"
         r = requests.get(url, headers=SINA_HEADERS, timeout=10)
         r.encoding = "gbk"
 
-        data = _parse_sina_quote(r.text)
+        data = parse_sina_quote(r.text)
         if not data:
             return f"未找到股票 {symbol} 的行情数据，请确认代码是否正确。"
 
@@ -126,7 +61,7 @@ def get_multi_stock_prices(symbols: str) -> str:
     """
     try:
         code_list = [s.strip() for s in symbols.split(",")]
-        sina_symbols = ",".join(_get_sina_prefix(c) for c in code_list)
+        sina_symbols = ",".join(get_sina_prefix(c) for c in code_list)
 
         url = f"https://hq.sinajs.cn/list={sina_symbols}"
         r = requests.get(url, headers=SINA_HEADERS, timeout=10)
@@ -140,7 +75,7 @@ def get_multi_stock_prices(symbols: str) -> str:
                 continue
             code_match = re.search(r"str_[a-z]{2}(\d{6})", raw_line)
             code = code_match.group(1) if code_match else "??????"
-            data = _parse_sina_quote(raw_line)
+            data = parse_sina_quote(raw_line)
             if not data:
                 continue
 
@@ -170,7 +105,7 @@ def get_stock_history(symbol: str, period: str = "daily", days: int = 30) -> str
     """
     try:
         scale = 1200 if period == "weekly" else 240
-        df = get_sina_history(symbol, datalen=days, scale=scale)
+        df = get_sina_kline(symbol, datalen=days, scale=scale)
 
         if df.empty:
             return f"未找到股票 {symbol} 在该时间段内的数据。"

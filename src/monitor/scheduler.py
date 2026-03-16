@@ -12,55 +12,15 @@
   盘前摘要: python -m src.monitor.scheduler --morning
 """
 
-import re
 import os
 import sys
 import time
-import json
-import requests
 from datetime import datetime
 
 from src.monitor.rules import list_rules, check_rules
+from src.sina import fetch_realtime_quote
 
-SINA_HEADERS = {"Referer": "https://finance.sina.com.cn"}
 ALERT_LOG = "./data/alerts.log"
-
-
-def _get_sina_prefix(symbol: str) -> str:
-    return f"sh{symbol}" if symbol.startswith("6") else f"sz{symbol}"
-
-
-def _fetch_realtime(symbol: str) -> dict | None:
-    """从新浪获取单只股票实时数据。"""
-    try:
-        sina_sym = _get_sina_prefix(symbol)
-        r = requests.get(
-            f"https://hq.sinajs.cn/list={sina_sym}",
-            headers=SINA_HEADERS, timeout=10,
-        )
-        r.encoding = "gbk"
-        match = re.search(r'"(.*)"', r.text)
-        if not match or not match.group(1):
-            return None
-        fields = match.group(1).split(",")
-        if len(fields) < 32:
-            return None
-
-        price = float(fields[3])
-        prev_close = float(fields[2])
-        change_pct = ((price - prev_close) / prev_close * 100) if prev_close else 0
-
-        return {
-            "symbol": symbol,
-            "name": fields[0],
-            "price": price,
-            "change_pct": round(change_pct, 2),
-            "volume": int(fields[8]),
-            "amount": float(fields[9]),
-            "time": f"{fields[30]} {fields[31]}",
-        }
-    except Exception:
-        return None
 
 
 def _send_alert(rule: dict, stock: dict):
@@ -95,7 +55,7 @@ def run_check_once():
     print(f"[{datetime.now().strftime('%H:%M:%S')}] 检查 {len(symbols)} 只股票, {len(rules)} 条规则...")
 
     for symbol in symbols:
-        data = _fetch_realtime(symbol)
+        data = fetch_realtime_quote(symbol)
         if not data:
             continue
 

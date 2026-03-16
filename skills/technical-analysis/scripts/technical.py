@@ -11,43 +11,21 @@
 数据源：新浪财经历史 K 线 API。
 """
 
-import re
-import json
-import requests
 import pandas as pd
 import pandas_ta as ta
 from langchain_core.tools import tool
 
-SINA_HEADERS = {"Referer": "https://finance.sina.com.cn"}
-
-
-def _get_sina_prefix(symbol: str) -> str:
-    return f"sh{symbol}" if symbol.startswith("6") else f"sz{symbol}"
+from src.sina import get_sina_kline
 
 
 def _get_hist_df(symbol: str, datalen: int = 120) -> pd.DataFrame:
     """从新浪获取历史 K 线并转为计算友好的 DataFrame。"""
-    sina_sym = _get_sina_prefix(symbol)
-    url = "https://quotes.sina.cn/cn/api/jsonp_v2.php/var/CN_MarketDataService.getKLineData"
-    params = {"symbol": sina_sym, "scale": "240", "ma": "no", "datalen": str(datalen)}
-    r = requests.get(url, params=params, headers=SINA_HEADERS, timeout=15)
-
-    match = re.search(r'\((\[.*\])\)', r.text)
-    if not match:
-        return pd.DataFrame()
-
-    rows = json.loads(match.group(1))
-    if not rows:
-        return pd.DataFrame()
-
-    df = pd.DataFrame(rows)
+    df = get_sina_kline(symbol, datalen=datalen, scale=240)
+    if df.empty:
+        return df
     df = df.rename(columns={"day": "date"})
-    for col in ["open", "high", "low", "close"]:
-        df[col] = df[col].astype(float)
-    df["volume"] = df["volume"].astype(int)
     df["date"] = pd.to_datetime(df["date"])
-    df = df.set_index("date").sort_index()
-    return df
+    return df.set_index("date").sort_index()
 
 
 @tool

@@ -130,19 +130,34 @@ marketmind/
 │           ├── MonitorPanel.tsx     #   监控规则管理
 │           └── KnowledgePanel.tsx   #   知识库文件管理
 │
+├── skills/                          # Skill 主目录（项目本体），Cursor 通过符号链接共用
+│   ├── stock-data/
+│   │   ├── SKILL.md
+│   │   └── scripts/stock_data.py
+│   ├── technical-analysis/
+│   ├── financial-data/
+│   ├── kline-chart/
+│   ├── web-search/
+│   ├── knowledge-rag/
+│   ├── stock-monitor/
+│   └── ui-ux-designer/
+│
 ├── src/
 │   ├── agent/
 │   │   └── graph.py                 # LangGraph Agent 核心 (ReAct 循环)
 │   ├── config/
 │   │   └── settings.py              # 环境变量 & 系统提示词 & 路径常量
-│   ├── skills/                      # 工具桥接层，动态加载 .cursor/skills/*/scripts/
-│   │   ├── stock_data.py            #   → stock-data/scripts/stock_data.py
-│   │   ├── technical.py             #   → technical-analysis/scripts/technical.py
-│   │   ├── financial.py             #   → financial-data/scripts/financial.py
-│   │   ├── kline_chart.py           #   → kline-chart/scripts/kline_chart.py
-│   │   ├── web_search.py            #   → web-search/scripts/web_search.py
-│   │   ├── news_rag.py              #   → knowledge-rag/scripts/news_rag.py
-│   │   └── monitor_skill.py         #   → stock-monitor/scripts/monitor_skill.py
+│   ├── sina.py                      # 新浪财经 API 公共模块（行情/K线解析）
+│   ├── utils/                       # 通用工具
+│   │   └── retry.py                 # 指数退避重试（akshare 等）
+│   ├── skills/                      # 工具桥接层，动态加载 skills/*/scripts/
+│   │   ├── stock_data.py            #   → skills/stock-data/scripts/stock_data.py
+│   │   ├── technical.py             #   → skills/technical-analysis/scripts/technical.py
+│   │   ├── financial.py             #   → skills/financial-data/scripts/financial.py
+│   │   ├── kline_chart.py           #   → skills/kline-chart/scripts/kline_chart.py
+│   │   ├── web_search.py            #   → skills/web-search/scripts/web_search.py
+│   │   ├── knowledge_rag.py         #   → skills/knowledge-rag/scripts/knowledge_rag.py
+│   │   └── monitor_skill.py         #   → skills/stock-monitor/scripts/monitor_skill.py
 │   ├── rag/                         # RAG 知识库
 │   │   ├── vector_store.py          #   ChromaDB 向量存储
 │   │   └── ingest.py                #   文档导入 (PDF/TXT/MD)
@@ -152,17 +167,7 @@ marketmind/
 │
 ├── .cursor/
 │   ├── mcp.json                     # Cursor MCP 配置 (cwd 使用 ${workspaceFolder})
-│   └── skills/                      # Cursor Agent Skills（实际实现所在）
-│       ├── stock-data/
-│       │   ├── SKILL.md
-│       │   └── scripts/stock_data.py
-│       ├── technical-analysis/
-│       ├── financial-data/
-│       ├── kline-chart/
-│       ├── web-search/
-│       ├── knowledge-rag/
-│       ├── stock-monitor/
-│       └── ui-ux-designer/
+│   └── skills/                      # 符号链接 → ../skills/（Cursor 从此处发现 Skill）
 │
 ├── mcp_server/                      # [可选] MCP Server
 │   └── server.py                    #   复用 src.skills，供 Cursor/Claude Desktop 调用

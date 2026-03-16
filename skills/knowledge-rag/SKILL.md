@@ -35,6 +35,6 @@ python -m src.rag.ingest --stats
 
 ## 脚本
 
-实现文件：[scripts/news_rag.py](scripts/news_rag.py)
+实现文件：[scripts/knowledge_rag.py](scripts/knowledge_rag.py)
 
 导出：`KNOWLEDGE_RAG_TOOLS` 列表
