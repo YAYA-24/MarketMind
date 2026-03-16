@@ -134,15 +134,15 @@ marketmind/
 │   ├── agent/
 │   │   └── graph.py                 # LangGraph Agent 核心 (ReAct 循环)
 │   ├── config/
-│   │   └── settings.py              # 环境变量 & 系统提示词
-│   ├── skills/                      # 工具桥接层 (→ .cursor/skills/*)
-│   │   ├── stock_data.py
-│   │   ├── technical.py
-│   │   ├── financial.py
-│   │   ├── kline_chart.py
-│   │   ├── web_search.py
-│   │   ├── news_rag.py
-│   │   └── monitor_skill.py
+│   │   └── settings.py              # 环境变量 & 系统提示词 & 路径常量
+│   ├── skills/                      # 工具桥接层，动态加载 .cursor/skills/*/scripts/
+│   │   ├── stock_data.py            #   → stock-data/scripts/stock_data.py
+│   │   ├── technical.py             #   → technical-analysis/scripts/technical.py
+│   │   ├── financial.py             #   → financial-data/scripts/financial.py
+│   │   ├── kline_chart.py           #   → kline-chart/scripts/kline_chart.py
+│   │   ├── web_search.py            #   → web-search/scripts/web_search.py
+│   │   ├── news_rag.py              #   → knowledge-rag/scripts/news_rag.py
+│   │   └── monitor_skill.py         #   → stock-monitor/scripts/monitor_skill.py
 │   ├── rag/                         # RAG 知识库
 │   │   ├── vector_store.py          #   ChromaDB 向量存储
 │   │   └── ingest.py                #   文档导入 (PDF/TXT/MD)
@@ -151,9 +151,11 @@ marketmind/
 │       └── scheduler.py             #   定时任务
 │
 ├── .cursor/
-│   ├── mcp.json                     # Cursor MCP 配置
-│   └── skills/                      # Cursor Agent Skills
+│   ├── mcp.json                     # Cursor MCP 配置 (cwd 使用 ${workspaceFolder})
+│   └── skills/                      # Cursor Agent Skills（实际实现所在）
 │       ├── stock-data/
+│       │   ├── SKILL.md
+│       │   └── scripts/stock_data.py
 │       ├── technical-analysis/
 │       ├── financial-data/
 │       ├── kline-chart/
@@ -163,7 +165,7 @@ marketmind/
 │       └── ui-ux-designer/
 │
 ├── mcp_server/                      # [可选] MCP Server
-│   └── server.py                    #   供 Cursor/Claude Desktop 调用
+│   └── server.py                    #   复用 src.skills，供 Cursor/Claude Desktop 调用
 │
 └── data/
     └── books/                       # 投资书籍 (用户自行放入)

@@ -1,9 +1,9 @@
 {
   "mcpServers": {
     "a-stock-analyzer": {
-      "command": "/opt/anaconda3/bin/python",
+      "command": "python",
       "args": ["mcp_server/server.py"],
-      "cwd": "/Users/xuyutong/Desktop/MyAgent"
+      "cwd": "${workspaceFolder}"
     }
   }
 }

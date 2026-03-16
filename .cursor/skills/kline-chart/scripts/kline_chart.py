@@ -13,7 +13,7 @@ import matplotlib
 matplotlib.use('Agg')
 from langchain_core.tools import tool
 
-CHART_DIR = os.path.abspath(os.path.join(os.getcwd(), 'data', 'charts'))
+from src.config.settings import CHART_DIR
 SINA_HEADERS = {"Referer": "https://finance.sina.com.cn"}
 
 
@@ -75,8 +75,8 @@ def generate_kline_chart(symbol: str, days: int = 60) -> str:
 
         stock_name = _get_stock_name(symbol)
 
-        os.makedirs(CHART_DIR, exist_ok=True)
-        filepath = os.path.join(CHART_DIR, f"{symbol}_kline.png")
+        CHART_DIR.mkdir(parents=True, exist_ok=True)
+        filepath = CHART_DIR / f"{symbol}_kline.png"
 
         style = mpf.make_mpf_style(
             base_mpf_style="charles",
@@ -95,10 +95,10 @@ def generate_kline_chart(symbol: str, days: int = 60) -> str:
             volume=True,
             mav=(5, 10, 20),
             figsize=(14, 8),
-            savefig=dict(fname=filepath, dpi=150, bbox_inches="tight"),
+            savefig=dict(fname=str(filepath), dpi=150, bbox_inches="tight"),
         )
 
-        abs_path = os.path.abspath(filepath)
+        abs_path = str(filepath.resolve())
         return (
             f"K线图已生成！\n"
             f"股票: {stock_name} ({symbol})\n"

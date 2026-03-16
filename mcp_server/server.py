@@ -1,11 +1,8 @@
 """
 A 股分析 MCP Server。
 
-这个文件是一个独立的 MCP 工具服务器。它把我们之前写的 Skill 能力
-通过 MCP 协议暴露出去，任何支持 MCP 的客户端都可以调用：
-  - Cursor IDE
-  - Claude Desktop
-  - 其他支持 MCP 的 Agent 框架
+通过 MCP 协议暴露 Skill 能力，供 Cursor IDE、Claude Desktop 等客户端调用。
+所有工具实现复用 src.skills，无重复代码。
 
 启动方式（开发调试）：
   python mcp_server/server.py
@@ -16,52 +13,22 @@ MCP 协议通信方式：
 """
 
 import os
-import re
 import sys
-import requests
+
+# 确保项目根目录在 sys.path 中，便于导入 src
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
 from dotenv import load_dotenv
 from mcp.server.fastmcp import FastMCP
 
 # 加载 .env 配置
 load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
 
-TAVILY_API_KEY = os.getenv("TAVILY_API_KEY", "")
-
-# ── 创建 MCP Server 实例 ──────────────────────────────────
-# name 会在客户端显示，帮助用户识别这是哪个工具服务器
-
 mcp = FastMCP("A股分析助手")
 
+
 # ── 行情数据工具 ──────────────────────────────────────────
-# 复用之前 src/skills/stock_data.py 中的新浪财经 API 逻辑
-
-SINA_HEADERS = {"Referer": "https://finance.sina.com.cn"}
-
-
-def _get_sina_prefix(symbol: str) -> str:
-    return f"sh{symbol}" if symbol.startswith("6") else f"sz{symbol}"
-
-
-def _parse_sina_quote(raw: str) -> dict | None:
-    match = re.search(r'"(.*)"', raw)
-    if not match or not match.group(1):
-        return None
-    fields = match.group(1).split(",")
-    if len(fields) < 32:
-        return None
-    return {
-        "名称": fields[0],
-        "今开": float(fields[1]),
-        "昨收": float(fields[2]),
-        "最新价": float(fields[3]),
-        "最高": float(fields[4]),
-        "最低": float(fields[5]),
-        "成交量": int(fields[8]),
-        "成交额": float(fields[9]),
-        "日期": fields[30],
-        "时间": fields[31],
-    }
-
+# 复用 src.skills.stock_data
 
 @mcp.tool()
 def get_stock_price(symbol: str) -> str:
@@ -71,29 +38,8 @@ def get_stock_price(symbol: str) -> str:
         symbol: 股票代码，6位数字，如 "600519" 代表贵州茅台
     """
     try:
-        sina_symbol = _get_sina_prefix(symbol)
-        r = requests.get(
-            f"https://hq.sinajs.cn/list={sina_symbol}",
-            headers=SINA_HEADERS, timeout=10,
-        )
-        r.encoding = "gbk"
-        data = _parse_sina_quote(r.text)
-        if not data:
-            return f"未找到股票 {symbol} 的行情数据。"
-
-        change = data["最新价"] - data["昨收"]
-        pct = (change / data["昨收"]) * 100 if data["昨收"] else 0
-        vol = data["成交量"] / 100
-
-        return (
-            f"股票: {data['名称']} ({symbol})\n"
-            f"最新价: {data['最新价']:.2f} 元\n"
-            f"涨跌: {change:+.2f} 元 ({pct:+.2f}%)\n"
-            f"今开: {data['今开']:.2f} | 最高: {data['最高']:.2f} | 最低: {data['最低']:.2f}\n"
-            f"昨收: {data['昨收']:.2f}\n"
-            f"成交量: {vol:.0f} 手 | 成交额: {data['成交额']/1e8:.2f} 亿元\n"
-            f"数据时间: {data['日期']} {data['时间']}"
-        )
+        from src.skills.stock_data import get_stock_price as _impl
+        return _impl.invoke({"symbol": symbol})
     except Exception as e:
         return f"查询失败: {e}"
 
@@ -106,36 +52,30 @@ def get_multi_stock_prices(symbols: str) -> str:
         symbols: 多个股票代码，用逗号分隔，如 "600519,000001,000858"
     """
     try:
-        codes = [s.strip() for s in symbols.split(",")]
-        sina_syms = ",".join(_get_sina_prefix(c) for c in codes)
-        r = requests.get(
-            f"https://hq.sinajs.cn/list={sina_syms}",
-            headers=SINA_HEADERS, timeout=10,
-        )
-        r.encoding = "gbk"
-
-        lines = ["代码     | 名称     | 最新价    | 涨跌幅    | 成交额(亿)", "-" * 62]
-        for raw_line in r.text.strip().split(";"):
-            raw_line = raw_line.strip()
-            if not raw_line:
-                continue
-            code_m = re.search(r"str_[a-z]{2}(\d{6})", raw_line)
-            code = code_m.group(1) if code_m else "??????"
-            data = _parse_sina_quote(raw_line)
-            if not data:
-                continue
-            pct = ((data["最新价"] - data["昨收"]) / data["昨收"] * 100
-                   if data["昨收"] else 0)
-            lines.append(
-                f"{code}   | {data['名称']:<6} | {data['最新价']:>8.2f} | "
-                f"{pct:>+7.2f}%  | {data['成交额']/1e8:>7.2f}"
-            )
-        return "\n".join(lines)
+        from src.skills.stock_data import get_multi_stock_prices as _impl
+        return _impl.invoke({"symbols": symbols})
     except Exception as e:
         return f"批量查询失败: {e}"
 
 
+@mcp.tool()
+def get_stock_history(symbol: str, period: str = "daily", days: int = 30) -> str:
+    """查询单只 A 股的历史K线数据。
+
+    Args:
+        symbol: 股票代码，6位数字，如 "600519"
+        period: K线周期，可选 "daily"(日线)、"weekly"(周线)
+        days: 查询最近多少天的数据，默认30天
+    """
+    try:
+        from src.skills.stock_data import get_stock_history as _impl
+        return _impl.invoke({"symbol": symbol, "period": period, "days": days})
+    except Exception as e:
+        return f"查询历史数据失败: {e}"
+
+
 # ── 联网搜索工具 ──────────────────────────────────────────
+# 复用 src.skills.web_search
 
 @mcp.tool()
 def search_finance_news(query: str) -> str:
@@ -144,25 +84,9 @@ def search_finance_news(query: str) -> str:
     Args:
         query: 搜索关键词，如 "贵州茅台 最新消息"、"A股 今日行情"
     """
-    if not TAVILY_API_KEY:
-        return "Tavily API Key 未配置。请在 .env 中设置 TAVILY_API_KEY。"
     try:
-        from langchain_tavily import TavilySearch
-        search = TavilySearch(
-            max_results=5, topic="news", tavily_api_key=TAVILY_API_KEY,
-        )
-        results = search.invoke({"query": query})
-
-        if isinstance(results, str):
-            return results
-        if isinstance(results, list):
-            lines = [f"搜索 '{query}' 的结果：\n"]
-            for i, item in enumerate(results, 1):
-                lines.append(f"【{i}】{item.get('url', '')}")
-                lines.append(f"    {item.get('content', '')[:300]}")
-                lines.append("")
-            return "\n".join(lines)
-        return str(results)
+        from src.skills.web_search import search_web as _impl
+        return _impl.invoke({"query": query})
     except Exception as e:
         return f"搜索失败: {e}"
 
@@ -177,7 +101,6 @@ def get_technical_indicators(symbol: str) -> str:
         symbol: 股票代码，6位数字
     """
     try:
-        sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
         from src.skills.technical import get_technical_indicators as _impl
         return _impl.invoke({"symbol": symbol})
     except Exception as e:
@@ -194,7 +117,6 @@ def get_financial_data(symbol: str) -> str:
         symbol: 股票代码，6位数字
     """
     try:
-        sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
         from src.skills.financial import get_financial_data as _impl
         return _impl.invoke({"symbol": symbol})
     except Exception as e:
@@ -212,7 +134,6 @@ def generate_kline_chart(symbol: str, days: int = 60) -> str:
         days: 显示最近多少天，默认60
     """
     try:
-        sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
         from src.skills.kline_chart import generate_kline_chart as _impl
         return _impl.invoke({"symbol": symbol, "days": days})
     except Exception as e:
@@ -220,6 +141,7 @@ def generate_kline_chart(symbol: str, days: int = 60) -> str:
 
 
 # ── 知识库检索工具 ────────────────────────────────────────
+# 复用 src.skills.news_rag
 
 @mcp.tool()
 def search_investment_knowledge(query: str) -> str:
@@ -229,26 +151,8 @@ def search_investment_knowledge(query: str) -> str:
         query: 检索问题，如 "什么是安全边际"、"如何分析公司护城河"
     """
     try:
-        sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-        from src.rag.vector_store import search_knowledge, get_db_stats
-
-        stats = get_db_stats()
-        if stats["total_documents"] == 0:
-            return "投资知识库为空。请先导入书籍: python -m src.rag.ingest path/to/book.pdf"
-
-        results = search_knowledge(query, n_results=5)
-        if not results:
-            return f"未找到与 '{query}' 相关的内容。"
-
-        lines = [f"知识库检索结果（'{query}'）：\n"]
-        for i, r in enumerate(results, 1):
-            source = r["metadata"].get("source", "未知")
-            distance = r.get("distance")
-            rel = f"(相关度: {1-distance:.0%})" if distance is not None else ""
-            lines.append(f"【{i}】来源: {source} {rel}")
-            lines.append(f"{r['content']}")
-            lines.append("")
-        return "\n".join(lines)
+        from src.skills.news_rag import search_investment_knowledge as _impl
+        return _impl.invoke({"query": query})
     except Exception as e:
         return f"知识库检索失败: {e}"
 

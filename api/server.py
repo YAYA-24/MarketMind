@@ -25,7 +25,7 @@ from pydantic import BaseModel
 
 from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
 from src.agent.graph import build_graph
-from src.config.settings import TAVILY_API_KEY
+from src.config.settings import TAVILY_API_KEY, CHART_DIR, DATA_DIR
 from src.monitor.rules import add_rule, list_rules, remove_rule
 from src.rag.vector_store import list_sources, delete_by_source, get_db_stats
 from src.rag.ingest import ingest_file
@@ -139,8 +139,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-CHARTS_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'data', 'charts'))
-
 sessions: dict[str, list] = {}
 
 
@@ -227,8 +225,9 @@ async def chat(req: ChatRequest):
             png_paths = re.findall(r'[\w/._-]+\.png', full_content)
             for p in png_paths:
                 p = p.strip('`').strip()
-                if os.path.exists(p):
-                    filename = os.path.basename(p)
+                filename = os.path.basename(p)
+                chart_path = CHART_DIR / filename
+                if chart_path.exists():
                     images.append(f"/api/charts/{filename}")
 
             seen_urls = set()
@@ -269,12 +268,9 @@ async def chat(req: ChatRequest):
 @app.get("/api/charts/{filename}")
 async def get_chart(filename: str):
     """获取生成的 K 线图。"""
-    filepath = os.path.join(CHARTS_DIR, filename)
-    if os.path.exists(filepath):
-        return FileResponse(filepath, media_type="image/png")
-    for root, dirs, files in os.walk(os.path.join(os.path.dirname(__file__), '..')):
-        if filename in files:
-            return FileResponse(os.path.join(root, filename), media_type="image/png")
+    filepath = CHART_DIR / filename
+    if filepath.exists():
+        return FileResponse(str(filepath), media_type="image/png")
     return {"error": "not found"}
 
 
@@ -301,8 +297,8 @@ async def clear_session(session_id: str):
     return {"success": True}
 
 
-UPLOAD_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'data', 'uploads'))
-os.makedirs(UPLOAD_DIR, exist_ok=True)
+UPLOAD_DIR = DATA_DIR / "uploads"
+UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 
 @app.get("/api/knowledge")
@@ -318,7 +314,7 @@ async def upload_knowledge(file: UploadFile = File(...)):
     if ext not in (".pdf", ".txt", ".md"):
         return {"error": f"不支持的文件格式: {ext}（支持 .pdf, .txt, .md）"}
 
-    save_path = os.path.join(UPLOAD_DIR, file.filename or "upload.txt")
+    save_path = UPLOAD_DIR / (file.filename or "upload.txt")
     with open(save_path, "wb") as f:
         shutil.copyfileobj(file.file, f)
 
