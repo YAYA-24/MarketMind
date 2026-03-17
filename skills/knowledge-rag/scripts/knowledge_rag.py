@@ -10,6 +10,8 @@
 """
 
 from langchain_core.tools import tool
+
+from src.rag.context_builder import build_context
 from src.rag.vector_store import search_knowledge, get_db_stats
 
 
@@ -34,21 +36,15 @@ def search_investment_knowledge(query: str) -> str:
 
         results = search_knowledge(query, n_results=5)
         if not results:
-            return f"未找到与 '{query}' 相关的内容。"
+            return f"未找到与「{query}」相关的内容。"
 
-        lines = [f"从知识库中检索到与 '{query}' 相关的 {len(results)} 段内容：\n"]
-
-        for i, r in enumerate(results, 1):
-            meta = r["metadata"]
-            source = meta.get("source", "未知来源")
-            distance = r.get("distance")
-            relevance = f"(相关度: {1 - distance:.0%})" if distance is not None else ""
-
-            lines.append(f"【{i}】来源: {source} {relevance}")
-            lines.append(f"{r['content']}")
-            lines.append("")
-
-        return "\n".join(lines)
+        return build_context(
+            results,
+            query=query,
+            token_budget=4000,
+            dedupe=True,
+            include_header=True,
+        )
 
     except Exception as e:
         return f"知识库检索失败: {str(e)}"

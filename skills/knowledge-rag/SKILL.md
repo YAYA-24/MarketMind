@@ -19,6 +19,21 @@ description: Retrieve investment knowledge from the RAG vector database containi
 - **联网搜索** → 最新新闻、实时动态（时效性信息）
 - **知识库 RAG** → 投资理论、分析方法（静态专业知识）
 
+## 上下文构建
+
+注入 LLM 的 context 经优化：按相关度排序、去重、控制 token budget、标注来源。
+
+格式示例：
+```
+[聪明的投资者.pdf | 书籍]
+安全边际是价值投资的核心概念...
+
+[贵州茅台年报 | 2025 Q1 研报]
+...
+```
+
+减少 LLM 幻觉。
+
 ## 知识库管理
 
 导入文档（支持 PDF/TXT/MD）：

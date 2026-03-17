@@ -165,6 +165,7 @@ marketmind/
 │   │   ├── embedding.py             #   BGE 中文 embedding + Query Expansion
 │   │   ├── bm25_index.py            #   BM25 关键词检索（混合检索）
 │   │   ├── reranker.py              #   Cross-Encoder Rerank
+│   │   ├── context_builder.py      #   上下文构建（去重、token budget、来源标注）
 │   │   ├── chunker.py               #   结构感知切分
 │   │   └── ingest.py                #   文档导入 (PDF/TXT/MD)
 │   └── monitor/                     # 监控系统

@@ -87,6 +87,11 @@ def _extract_references(tool_name: str, content: str) -> list[dict]:
             if url not in [r['url'] for r in refs]:
                 refs.append({'url': url, 'title': domain})
     elif tool_name == 'search_investment_knowledge':
+        # 新格式 [Source | 类型] 或旧格式 来源: xxx
+        for m in re.finditer(r'\[([^|\]]+)\s*\|[^\]]*\]', content):
+            source = m.group(1).strip()
+            if source and source not in [r['title'] for r in refs]:
+                refs.append({'url': '', 'title': f'📄 {source}'})
         for m in re.finditer(r'来源:\s*(\S+)', content):
             source = m.group(1)
             if source not in [r['title'] for r in refs]:
