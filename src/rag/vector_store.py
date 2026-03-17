@@ -5,9 +5,10 @@ RAG 向量存储模块。
 这些知识不会过时（如价值投资理论、技术分析方法论），适合用 RAG 存储。
 
 核心流程：
-  文档原文 → 结构感知切分(Chunker) → 向量化(Embedding) → 存入 ChromaDB → 语义检索
+  文档原文 → 结构感知切分(Chunker) → 向量化(Embedding) → 存入 ChromaDB → 混合检索
   双层 chunk：小块召回，大块生成
   Embedding：BGE 中文 / Query Expansion + RRF 融合
+  混合检索：Dense top 50 + BM25 top 50 → 合并去重 → RRF 融合
 """
 
 import hashlib
@@ -18,6 +19,7 @@ import chromadb
 from src.config.settings import DATA_DIR
 from src.rag.chunker import chunk_document, infer_doc_type, ChunkResult, DocType
 from src.rag.embedding import expand_query, get_embedding_function, reciprocal_rank_fusion
+from src.rag.bm25_index import build_bm25_index
 
 
 _client: chromadb.ClientAPI | None = None
@@ -120,23 +122,38 @@ def ingest_document(
     return len(to_add)
 
 
+def _get_bm25_index(collection: chromadb.Collection):
+    """从 ChromaDB 加载 corpus 构建 BM25 索引。"""
+    all_data = collection.get(include=["documents"])
+    ids = all_data.get("ids", [])
+    docs = all_data.get("documents", [])
+    if not ids or not docs:
+        return None
+    return build_bm25_index(ids, docs)
+
+
 def search_knowledge(
     query: str,
     n_results: int = 5,
     use_query_expansion: bool | None = None,
     expansion_method: str = "simple",
+    use_hybrid_search: bool | None = None,
+    hybrid_top_k: int = 50,
 ) -> list[dict]:
     """
-    语义检索：从知识库中找到与问题最相关的文档片段。
+    混合检索：Dense + BM25，金融领域对关键词（ROE、净利润同比、现金流）敏感。
 
     - 双层 chunk：检索用小块，返回用大块（parent_content）
-    - Query Expansion：可选扩写同义 query，多路检索后 RRF 融合
+    - Query Expansion：可选扩写同义 query
+    - 混合检索：Dense top_k + BM25 top_k → 合并去重 → RRF 融合
 
     Args:
         query: 检索问题，如"什么是安全边际"
-        n_results: 返回结果数量
-        use_query_expansion: 是否启用 query 扩展，None 时从 env ENABLE_QUERY_EXPANSION 读取
+        n_results: 最终返回数量
+        use_query_expansion: 是否启用 query 扩展
         expansion_method: "simple" 规则同义 | "llm" LLM 扩写
+        use_hybrid_search: 是否启用混合检索（Dense+BM25），None 时从 env 读取
+        hybrid_top_k: 每路召回数量（Dense 与 BM25 各取 top_k）
     """
     collection = _get_collection()
 
@@ -145,47 +162,54 @@ def search_knowledge(
 
     if use_query_expansion is None:
         use_query_expansion = os.getenv("ENABLE_QUERY_EXPANSION", "1") == "1"
+    if use_hybrid_search is None:
+        use_hybrid_search = os.getenv("ENABLE_HYBRID_SEARCH", "1") == "1"
 
+    ranked_lists: list[list[tuple[str, float]]] = []
+
+    # 1. Dense 检索
     if use_query_expansion:
         queries = expand_query(query, method=expansion_method, max_queries=3)
     else:
         queries = [query]
 
-    if len(queries) == 1:
-        # 单 query，直接检索
-        results = collection.query(
-            query_texts=[query],
-            n_results=n_results,
-            include=["documents", "metadatas", "distances"],
-        )
-        return _format_search_results(results, 0)
-
-    # 多 query：分别检索，RRF 融合
-    ranked_lists: list[list[tuple[str, float]]] = []
-    raw_results = []
+    dense_top_k = hybrid_top_k if use_hybrid_search else n_results
 
     for q in queries:
         r = collection.query(
             query_texts=[q],
-            n_results=n_results * 2,  # 每路多取，融合后去重
+            n_results=dense_top_k,
             include=["documents", "metadatas", "distances"],
         )
-        raw_results.append(r)
         ids = r.get("ids", [[]])[0]
         dists = r.get("distances", [[]])[0]
         ranked_lists.append(list(zip(ids, dists)))
 
-    fused = reciprocal_rank_fusion(ranked_lists, k=60)
-    top_ids = [doc_id for doc_id, _ in fused[:n_results]]
+    dense_fused = reciprocal_rank_fusion(ranked_lists, k=60)
+    dense_ranked = [(doc_id, _) for doc_id, _ in dense_fused[:hybrid_top_k]]
+
+    # 2. BM25 检索（混合模式）
+    if use_hybrid_search:
+        bm25_idx = _get_bm25_index(collection)
+        if bm25_idx:
+            bm25_ranked = bm25_idx.search(query, top_k=hybrid_top_k)
+            ranked_lists = [dense_ranked, bm25_ranked]
+        else:
+            ranked_lists = [dense_ranked]
+    else:
+        ranked_lists = [dense_ranked]
+
+    final_fused = reciprocal_rank_fusion(ranked_lists, k=60)
+    top_ids = [doc_id for doc_id, _ in final_fused[:n_results]]
 
     if not top_ids:
         return []
 
-    # 按 RRF 顺序获取完整文档
+    # 3. 获取完整文档
     fetched = collection.get(ids=top_ids, include=["documents", "metadatas"])
     id_to_doc = dict(zip(fetched["ids"], fetched["documents"]))
     id_to_meta = dict(zip(fetched["ids"], fetched["metadatas"]))
-    id_to_rank = {doc_id: i for i, (doc_id, _) in enumerate(fused)}
+    id_to_rank = {doc_id: i for i, (doc_id, _) in enumerate(final_fused)}
 
     output = []
     for doc_id in top_ids:
@@ -195,7 +219,7 @@ def search_knowledge(
         output.append({
             "content": display_content,
             "metadata": meta,
-            "distance": 1 - (id_to_rank.get(doc_id, 0) / max(len(fused), 1)),  # 近似相关度
+            "distance": 1 - (id_to_rank.get(doc_id, 0) / max(len(final_fused), 1)),
         })
     return output
 

@@ -88,7 +88,7 @@ python -m src.rag.ingest data/books/           # 整个目录
 python -m src.rag.ingest --stats               # 查看状态
 ```
 
-RAG 使用 BGE 中文 Embedding，首次导入会下载模型。可选环境变量：`EMBEDDING_MODEL=bge`（默认）、`ENABLE_QUERY_EXPANSION=1`（同义扩写 + RRF 融合）。
+RAG 使用 BGE 中文 Embedding + 混合检索（Dense + BM25）。首次导入会下载模型。可选环境变量：`EMBEDDING_MODEL=bge`、`ENABLE_HYBRID_SEARCH=1`（Dense+BM25）、`ENABLE_QUERY_EXPANSION=1`。
 
 ### 股票监控
 
@@ -163,6 +163,7 @@ marketmind/
 │   ├── rag/                         # RAG 知识库
 │   │   ├── vector_store.py          #   ChromaDB 向量存储
 │   │   ├── embedding.py             #   BGE 中文 embedding + Query Expansion
+│   │   ├── bm25_index.py            #   BM25 关键词检索（混合检索）
 │   │   ├── chunker.py               #   结构感知切分
 │   │   └── ingest.py                #   文档导入 (PDF/TXT/MD)
 │   └── monitor/                     # 监控系统
@@ -189,7 +190,7 @@ marketmind/
 | 工具定义 | LangChain `@tool` | 自动生成 JSON Schema |
 | 数据源 | 新浪财经 API / akshare | 实时行情 / 历史数据 / 财务 |
 | 联网搜索 | Tavily MCP | AI Agent 专用搜索（通过 MCP 协议接入） |
-| 向量数据库 | ChromaDB + BGE | RAG 知识存储 & 语义检索（Query Expansion + RRF） |
+| 向量数据库 | ChromaDB + BGE + BM25 | RAG 混合检索（Dense + BM25 + RRF） |
 | 技术指标 | pandas_ta | MA / MACD / KDJ / RSI / BOLL |
 | K 线图 | mplfinance + matplotlib | 蜡烛图 + 均线 + 成交量 |
 | Web 后端 | FastAPI + SSE | 流式聊天 / 文件上传 / CRUD |

@@ -35,7 +35,9 @@ python -m src.rag.ingest --stats
 
 **Embedding：** BAAI/bge-small-zh-v1.5（中文优化）。环境变量 `EMBEDDING_MODEL=bge`（默认）或 `default`。
 
-**Query Expansion：** 可选扩写同义 query，多路检索后 RRF 融合。`ENABLE_QUERY_EXPANSION=1` 启用，`expansion_method=simple`（规则）或 `llm`（LLM 扩写）。
+**混合检索：** Dense top 50 + BM25 top 50 → 合并去重 → RRF 融合。金融领域对「ROE」「净利润同比」「现金流」等关键词敏感，BM25 与向量互补。`ENABLE_HYBRID_SEARCH=1` 启用。
+
+**Query Expansion：** 可选扩写同义 query。`ENABLE_QUERY_EXPANSION=1` 启用。
 
 **切分策略：** 按标题/表格/段落，双层 chunk（小块召回、大块生成）。
 

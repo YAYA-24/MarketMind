@@ -12,6 +12,8 @@ langchain-mcp-adapters>=0.2
 # 向量数据库 (RAG)
 chromadb>=0.5
 sentence-transformers>=2.2  # BGE 中文 embedding
+rank_bm25>=0.2.2            # BM25 关键词检索（混合检索）
+jieba>=0.42                 # 中文分词（BM25 用）
 
 # A 股数据
 akshare>=1.14
