@@ -179,6 +179,11 @@ marketmind/
 ├── mcp_server/                      # [可选] MCP Server
 │   └── server.py                    #   复用 src.skills，供 Cursor/Claude Desktop 调用
 │
+├── eval/                            # RAG 评估
+│   ├── queries.json                 # 测试 query
+│   ├── ground_truth.json            # 相关标注
+│   └── evaluation.py               # Recall@5、Precision@5、MRR、生成正确率
+│
 └── data/
     └── books/                       # 投资书籍 (用户自行放入)
 ```

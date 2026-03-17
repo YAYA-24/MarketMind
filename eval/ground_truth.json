@@ -1,0 +1,42 @@
+{
+  "q1": {
+    "relevant_keywords": ["安全边际", "内在价值", "margin of safety"],
+    "relevant_sources": [],
+    "expected_answer_keywords": ["安全边际", "价格", "价值"]
+  },
+  "q2": {
+    "relevant_keywords": ["ROE", "净资产收益率", "盈利能力"],
+    "relevant_sources": [],
+    "expected_answer_keywords": ["ROE", "净资产", "收益"]
+  },
+  "q3": {
+    "relevant_keywords": ["DCF", "现金流折现", "贴现", "估值"],
+    "relevant_sources": [],
+    "expected_answer_keywords": ["现金流", "折现", "估值"]
+  },
+  "q4": {
+    "relevant_keywords": ["价值投资", "格雷厄姆", "巴菲特", "安全边际"],
+    "relevant_sources": [],
+    "expected_answer_keywords": ["价值", "投资", "安全"]
+  },
+  "q5": {
+    "relevant_keywords": ["护城河", "竞争优势", "moat"],
+    "relevant_sources": [],
+    "expected_answer_keywords": ["护城河", "竞争", "优势"]
+  },
+  "q6": {
+    "relevant_keywords": ["均线", "MA", "移动平均", "技术分析"],
+    "relevant_sources": [],
+    "expected_answer_keywords": ["均线", "平均", "趋势"]
+  },
+  "q7": {
+    "relevant_keywords": ["净利润", "同比", "增速", "增长"],
+    "relevant_sources": [],
+    "expected_answer_keywords": ["净利润", "同比", "增长"]
+  },
+  "q8": {
+    "relevant_keywords": ["自由现金流", "现金流", "估值", "FCF"],
+    "relevant_sources": [],
+    "expected_answer_keywords": ["现金流", "估值", "自由"]
+  }
+}
