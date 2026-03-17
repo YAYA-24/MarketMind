@@ -31,13 +31,13 @@ python -m src.rag.ingest --stats
 
 ## RAG 管线
 
-文档 → 结构感知切分(标题/表格/段落，双层 chunk) → Embedding → ChromaDB(cosine) → 语义检索
+文档 → 结构感知切分 → BGE 中文 Embedding → ChromaDB(cosine) → Query Expansion + RRF 融合
 
-切分策略：
-- 按标题分块（##、第X章、一、二、1. 2. 3.）
-- 表格单独保留
-- 双层：小块(~200 tokens)召回，大块(~800 tokens)生成
-- 文档类型：财报/研报按章节，新闻按段落+时间
+**Embedding：** BAAI/bge-small-zh-v1.5（中文优化）。环境变量 `EMBEDDING_MODEL=bge`（默认）或 `default`。
+
+**Query Expansion：** 可选扩写同义 query，多路检索后 RRF 融合。`ENABLE_QUERY_EXPANSION=1` 启用，`expansion_method=simple`（规则）或 `llm`（LLM 扩写）。
+
+**切分策略：** 按标题/表格/段落，双层 chunk（小块召回、大块生成）。
 
 ## 脚本
 

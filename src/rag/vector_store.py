@@ -7,30 +7,41 @@ RAG 向量存储模块。
 核心流程：
   文档原文 → 结构感知切分(Chunker) → 向量化(Embedding) → 存入 ChromaDB → 语义检索
   双层 chunk：小块召回，大块生成
+  Embedding：BGE 中文 / Query Expansion + RRF 融合
 """
 
 import hashlib
+import os
+
 import chromadb
 
 from src.config.settings import DATA_DIR
 from src.rag.chunker import chunk_document, infer_doc_type, ChunkResult, DocType
+from src.rag.embedding import expand_query, get_embedding_function, reciprocal_rank_fusion
 
 
 _client: chromadb.ClientAPI | None = None
 _collection: chromadb.Collection | None = None
 
 DB_PATH = str(DATA_DIR / "chroma_db")
-COLLECTION_NAME = "investment_knowledge"
+# 集合名随 embedding 模型变化（维度不同，需隔离）
+_COLLECTION_BGE = "investment_knowledge_bge"
+_COLLECTION_DEFAULT = "investment_knowledge"
+
+
+def _collection_name() -> str:
+    return _COLLECTION_BGE if os.getenv("EMBEDDING_MODEL", "bge").lower() == "bge" else _COLLECTION_DEFAULT
 
 
 def _get_collection() -> chromadb.Collection:
     global _client, _collection
     if _collection is None:
         _client = chromadb.PersistentClient(path=DB_PATH)
-        _collection = _client.get_or_create_collection(
-            name=COLLECTION_NAME,
-            metadata={"hnsw:space": "cosine"},
-        )
+        emb_fn = get_embedding_function()
+        kwargs = {"name": _collection_name(), "metadata": {"hnsw:space": "cosine"}}
+        if emb_fn is not None:
+            kwargs["embedding_function"] = emb_fn
+        _collection = _client.get_or_create_collection(**kwargs)
     return _collection
 
 
@@ -109,46 +120,108 @@ def ingest_document(
     return len(to_add)
 
 
-def search_knowledge(query: str, n_results: int = 5) -> list[dict]:
+def search_knowledge(
+    query: str,
+    n_results: int = 5,
+    use_query_expansion: bool | None = None,
+    expansion_method: str = "simple",
+) -> list[dict]:
     """
     语义检索：从知识库中找到与问题最相关的文档片段。
 
-    双层 chunk：检索用小块，返回用大块（parent_content）以提供更多上下文。
+    - 双层 chunk：检索用小块，返回用大块（parent_content）
+    - Query Expansion：可选扩写同义 query，多路检索后 RRF 融合
 
     Args:
         query: 检索问题，如"什么是安全边际"
         n_results: 返回结果数量
+        use_query_expansion: 是否启用 query 扩展，None 时从 env ENABLE_QUERY_EXPANSION 读取
+        expansion_method: "simple" 规则同义 | "llm" LLM 扩写
     """
     collection = _get_collection()
 
     if collection.count() == 0:
         return []
 
-    results = collection.query(
-        query_texts=[query],
-        n_results=n_results,
-        include=["documents", "metadatas", "distances"],
-    )
+    if use_query_expansion is None:
+        use_query_expansion = os.getenv("ENABLE_QUERY_EXPANSION", "1") == "1"
+
+    if use_query_expansion:
+        queries = expand_query(query, method=expansion_method, max_queries=3)
+    else:
+        queries = [query]
+
+    if len(queries) == 1:
+        # 单 query，直接检索
+        results = collection.query(
+            query_texts=[query],
+            n_results=n_results,
+            include=["documents", "metadatas", "distances"],
+        )
+        return _format_search_results(results, 0)
+
+    # 多 query：分别检索，RRF 融合
+    ranked_lists: list[list[tuple[str, float]]] = []
+    raw_results = []
+
+    for q in queries:
+        r = collection.query(
+            query_texts=[q],
+            n_results=n_results * 2,  # 每路多取，融合后去重
+            include=["documents", "metadatas", "distances"],
+        )
+        raw_results.append(r)
+        ids = r.get("ids", [[]])[0]
+        dists = r.get("distances", [[]])[0]
+        ranked_lists.append(list(zip(ids, dists)))
+
+    fused = reciprocal_rank_fusion(ranked_lists, k=60)
+    top_ids = [doc_id for doc_id, _ in fused[:n_results]]
+
+    if not top_ids:
+        return []
+
+    # 按 RRF 顺序获取完整文档
+    fetched = collection.get(ids=top_ids, include=["documents", "metadatas"])
+    id_to_doc = dict(zip(fetched["ids"], fetched["documents"]))
+    id_to_meta = dict(zip(fetched["ids"], fetched["metadatas"]))
+    id_to_rank = {doc_id: i for i, (doc_id, _) in enumerate(fused)}
 
     output = []
-    for i in range(len(results["documents"][0])):
-        meta = results["metadatas"][0][i] or {}
-        content = results["documents"][0][i]
-        # 优先返回大块（parent_content）供 LLM 生成，无则用小块
+    for doc_id in top_ids:
+        content = id_to_doc.get(doc_id, "")
+        meta = id_to_meta.get(doc_id) or {}
         display_content = meta.get("parent_content") or content
         output.append({
             "content": display_content,
             "metadata": meta,
-            "distance": results["distances"][0][i] if results.get("distances") else None,
+            "distance": 1 - (id_to_rank.get(doc_id, 0) / max(len(fused), 1)),  # 近似相关度
         })
+    return output
 
+
+def _format_search_results(results: dict, query_idx: int = 0) -> list[dict]:
+    """将 ChromaDB 单 query 结果格式化为统一结构"""
+    output = []
+    docs = results.get("documents", [[]])[query_idx] or []
+    metas = results.get("metadatas", [[]])[query_idx] or []
+    dists = results.get("distances", [[]])[query_idx] if results.get("distances") else []
+    for i in range(len(docs)):
+        meta = metas[i] if i < len(metas) else {}
+        content = docs[i] if i < len(docs) else ""
+        display_content = meta.get("parent_content") or content
+        output.append({
+            "content": display_content,
+            "metadata": meta,
+            "distance": dists[i] if dists and i < len(dists) else None,
+        })
     return output
 
 
 def get_db_stats() -> dict:
     collection = _get_collection()
     return {
-        "collection_name": COLLECTION_NAME,
+        "collection_name": _collection_name(),
         "total_documents": collection.count(),
         "db_path": DB_PATH,
     }

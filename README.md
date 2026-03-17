@@ -88,6 +88,8 @@ python -m src.rag.ingest data/books/           # 整个目录
 python -m src.rag.ingest --stats               # 查看状态
 ```
 
+RAG 使用 BGE 中文 Embedding，首次导入会下载模型。可选环境变量：`EMBEDDING_MODEL=bge`（默认）、`ENABLE_QUERY_EXPANSION=1`（同义扩写 + RRF 融合）。
+
 ### 股票监控
 
 在 Web 界面侧栏的「监控面板」添加规则，或在对话中直接说：
@@ -160,6 +162,8 @@ marketmind/
 │   │   └── monitor_skill.py         #   → skills/stock-monitor/scripts/monitor_skill.py
 │   ├── rag/                         # RAG 知识库
 │   │   ├── vector_store.py          #   ChromaDB 向量存储
+│   │   ├── embedding.py             #   BGE 中文 embedding + Query Expansion
+│   │   ├── chunker.py               #   结构感知切分
 │   │   └── ingest.py                #   文档导入 (PDF/TXT/MD)
 │   └── monitor/                     # 监控系统
 │       ├── rules.py                 #   规则引擎
@@ -185,7 +189,7 @@ marketmind/
 | 工具定义 | LangChain `@tool` | 自动生成 JSON Schema |
 | 数据源 | 新浪财经 API / akshare | 实时行情 / 历史数据 / 财务 |
 | 联网搜索 | Tavily MCP | AI Agent 专用搜索（通过 MCP 协议接入） |
-| 向量数据库 | ChromaDB | RAG 知识存储 & 语义检索 |
+| 向量数据库 | ChromaDB + BGE | RAG 知识存储 & 语义检索（Query Expansion + RRF） |
 | 技术指标 | pandas_ta | MA / MACD / KDJ / RSI / BOLL |
 | K 线图 | mplfinance + matplotlib | 蜡烛图 + 均线 + 成交量 |
 | Web 后端 | FastAPI + SSE | 流式聊天 / 文件上传 / CRUD |
@@ -197,7 +201,7 @@ marketmind/
 
 ## Roadmap
 
-- [ ] 更强的中文 Embedding 模型（BGE 替代 MiniLM）
+- [x] 更强的中文 Embedding 模型（BGE 替代 MiniLM）
 - [ ] LangGraph Checkpoint 对话持久化
 - [ ] 异步工具调用提升并发性能
 - [ ] 更多数据源（港股、美股、基金）

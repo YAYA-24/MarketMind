@@ -11,6 +11,7 @@ langchain-mcp-adapters>=0.2
 
 # 向量数据库 (RAG)
 chromadb>=0.5
+sentence-transformers>=2.2  # BGE 中文 embedding
 
 # A 股数据
 akshare>=1.14
