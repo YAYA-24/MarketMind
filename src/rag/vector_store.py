@@ -5,10 +5,9 @@ RAG 向量存储模块。
 这些知识不会过时（如价值投资理论、技术分析方法论），适合用 RAG 存储。
 
 核心流程：
-  文档原文 → 结构感知切分(Chunker) → 向量化(Embedding) → 存入 ChromaDB → 混合检索
+  文档原文 → 结构感知切分(Chunker) → 向量化(Embedding) → 存入 ChromaDB → 混合检索 → Rerank
   双层 chunk：小块召回，大块生成
-  Embedding：BGE 中文 / Query Expansion + RRF 融合
-  混合检索：Dense top 50 + BM25 top 50 → 合并去重 → RRF 融合
+  混合检索：Dense top 50 + BM25 top 50 → RRF 融合 → Rerank top 20 → Top 5
 """
 
 import hashlib
@@ -20,6 +19,7 @@ from src.config.settings import DATA_DIR
 from src.rag.chunker import chunk_document, infer_doc_type, ChunkResult, DocType
 from src.rag.embedding import expand_query, get_embedding_function, reciprocal_rank_fusion
 from src.rag.bm25_index import build_bm25_index
+from src.rag.reranker import rerank
 
 
 _client: chromadb.ClientAPI | None = None
@@ -139,21 +139,25 @@ def search_knowledge(
     expansion_method: str = "simple",
     use_hybrid_search: bool | None = None,
     hybrid_top_k: int = 50,
+    use_rerank: bool | None = None,
+    rerank_candidates: int = 20,
 ) -> list[dict]:
     """
-    混合检索：Dense + BM25，金融领域对关键词（ROE、净利润同比、现金流）敏感。
+    混合检索 + Rerank：Dense + BM25 → RRF 融合 → Cross-Encoder Rerank → Top 5。
 
     - 双层 chunk：检索用小块，返回用大块（parent_content）
-    - Query Expansion：可选扩写同义 query
-    - 混合检索：Dense top_k + BM25 top_k → 合并去重 → RRF 融合
+    - 混合检索：Dense + BM25 → RRF
+    - Rerank：Top 20 → Cross-Encoder 打分 → Top 5（提升明显）
 
     Args:
-        query: 检索问题，如"什么是安全边际"
+        query: 检索问题
         n_results: 最终返回数量
         use_query_expansion: 是否启用 query 扩展
-        expansion_method: "simple" 规则同义 | "llm" LLM 扩写
-        use_hybrid_search: 是否启用混合检索（Dense+BM25），None 时从 env 读取
-        hybrid_top_k: 每路召回数量（Dense 与 BM25 各取 top_k）
+        expansion_method: "simple" | "llm"
+        use_hybrid_search: 是否启用混合检索
+        hybrid_top_k: 每路召回数量
+        use_rerank: 是否启用 Cross-Encoder Rerank，None 时从 env 读取
+        rerank_candidates: Rerank 候选数量（默认 20）
     """
     collection = _get_collection()
 
@@ -164,6 +168,8 @@ def search_knowledge(
         use_query_expansion = os.getenv("ENABLE_QUERY_EXPANSION", "1") == "1"
     if use_hybrid_search is None:
         use_hybrid_search = os.getenv("ENABLE_HYBRID_SEARCH", "1") == "1"
+    if use_rerank is None:
+        use_rerank = os.getenv("ENABLE_RERANK", "1") == "1"
 
     ranked_lists: list[list[tuple[str, float]]] = []
 
@@ -173,7 +179,7 @@ def search_knowledge(
     else:
         queries = [query]
 
-    dense_top_k = hybrid_top_k if use_hybrid_search else n_results
+    dense_top_k = hybrid_top_k if use_hybrid_search else max(n_results, rerank_candidates)
 
     for q in queries:
         r = collection.query(
@@ -200,7 +206,9 @@ def search_knowledge(
         ranked_lists = [dense_ranked]
 
     final_fused = reciprocal_rank_fusion(ranked_lists, k=60)
-    top_ids = [doc_id for doc_id, _ in final_fused[:n_results]]
+    # 召回数量：若启用 rerank 则取 rerank_candidates，否则取 n_results
+    recall_k = rerank_candidates if use_rerank else n_results
+    top_ids = [doc_id for doc_id, _ in final_fused[:recall_k]]
 
     if not top_ids:
         return []
@@ -211,17 +219,27 @@ def search_knowledge(
     id_to_meta = dict(zip(fetched["ids"], fetched["metadatas"]))
     id_to_rank = {doc_id: i for i, (doc_id, _) in enumerate(final_fused)}
 
-    output = []
+    candidates = []
     for doc_id in top_ids:
         content = id_to_doc.get(doc_id, "")
         meta = id_to_meta.get(doc_id) or {}
         display_content = meta.get("parent_content") or content
-        output.append({
+        candidates.append({
             "content": display_content,
             "metadata": meta,
             "distance": 1 - (id_to_rank.get(doc_id, 0) / max(len(final_fused), 1)),
         })
-    return output
+
+    # 4. Rerank（Cross-Encoder）
+    if use_rerank and len(candidates) > n_results:
+        try:
+            candidates = rerank(query, candidates, top_k=n_results)
+        except Exception:
+            candidates = candidates[:n_results]
+    else:
+        candidates = candidates[:n_results]
+
+    return candidates
 
 
 def _format_search_results(results: dict, query_idx: int = 0) -> list[dict]:
