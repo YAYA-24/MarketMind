@@ -31,7 +31,13 @@ python -m src.rag.ingest --stats
 
 ## RAG 管线
 
-文档 → 切分(500字/100字重叠) → Embedding(all-MiniLM-L6-v2) → ChromaDB(cosine) → 语义检索
+文档 → 结构感知切分(标题/表格/段落，双层 chunk) → Embedding → ChromaDB(cosine) → 语义检索
+
+切分策略：
+- 按标题分块（##、第X章、一、二、1. 2. 3.）
+- 表格单独保留
+- 双层：小块(~200 tokens)召回，大块(~800 tokens)生成
+- 文档类型：财报/研报按章节，新闻按段落+时间
 
 ## 脚本
 

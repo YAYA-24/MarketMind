@@ -14,6 +14,7 @@ import sys
 import os
 from pathlib import Path
 from src.rag.vector_store import ingest_document, get_db_stats
+from src.rag.chunker import infer_doc_type
 
 
 def extract_text_from_pdf(filepath: str) -> str:
@@ -54,8 +55,9 @@ def ingest_file(filepath: str) -> int:
         "file_type": path.suffix.lower(),
         "file_path": str(path.absolute()),
     }
+    doc_type = infer_doc_type(path.name, text[:500])
 
-    added = ingest_document(text, metadata)
+    added = ingest_document(text, metadata, doc_type=doc_type)
     print(f"  完成: 新增 {added} 个片段")
     return added
 
