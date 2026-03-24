@@ -13,7 +13,6 @@ import os
 import re
 import json
 import asyncio
-import queue
 import shutil
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -73,19 +72,48 @@ def _format_tool_input(name: str, args: dict) -> str:
     return json.dumps(args, ensure_ascii=False)[:60] if args else ''
 
 
+def _flatten_tool_content(content) -> str:
+    """将 ToolMessage 的 content 统一转为字符串。支持 MCP 返回的 list 格式。"""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = []
+        for block in content:
+            if isinstance(block, dict):
+                parts.append(block.get("text", block.get("content", str(block))))
+            elif isinstance(block, str):
+                parts.append(block)
+        return "\n".join(parts)
+    return str(content)
+
+
 def _extract_references(tool_name: str, content: str) -> list[dict]:
     """从工具返回内容中提取引用来源。"""
     refs = []
-    if tool_name in ('search_web', 'search_stock_news', 'tavily_search'):
+    search_tools = ('search_web', 'search_stock_news', 'tavily_search', 'tavily_extract', 'tavily_crawl')
+    # MCP 可能使用 tavily-search 等带连字符的名称
+    is_search_tool = tool_name in search_tools or (
+        tool_name and ('search' in tool_name.lower() or 'tavily' in tool_name.lower())
+    )
+    if is_search_tool:
+        # 格式1: 【N】https://...
         for m in re.finditer(r'【\d+】(https?://\S+)', content):
-            url = m.group(1)
+            url = m.group(1).rstrip(')')
             domain = re.sub(r'^https?://(www\.)?', '', url).split('/')[0]
             refs.append({'url': url, 'title': domain})
-        for m in re.finditer(r'"?url"?\s*[:=]\s*"?(https?://\S+?)"', content):
-            url = m.group(1).rstrip('",')
+        # 格式2: "url": "https://..." 或 url: "https://..."
+        for m in re.finditer(r'"?url"?\s*[:=]\s*"?(https?://[^\s"\')\]]+)"?', content):
+            url = m.group(1).rstrip('"\'.,;')
             domain = re.sub(r'^https?://(www\.)?', '', url).split('/')[0]
             if url not in [r['url'] for r in refs]:
                 refs.append({'url': url, 'title': domain})
+        # 格式3: 兜底 - 提取所有 http(s) 链接（避免误匹配代码片段，仅对搜索类工具）
+        if not refs:
+            for m in re.finditer(r'https?://[^\s\'"<>)\]]+', content):
+                url = m.group(0).rstrip('.,;)\'\"')
+                if len(url) > 20 and url not in [r['url'] for r in refs]:
+                    domain = re.sub(r'^https?://(www\.)?', '', url).split('/')[0]
+                    refs.append({'url': url, 'title': domain})
     elif tool_name == 'search_investment_knowledge':
         # 新格式 [Source | 类型] 或旧格式 来源: xxx
         for m in re.finditer(r'\[([^|\]]+)\s*\|[^\]]*\]', content):
@@ -118,8 +146,8 @@ async def lifespan(app: FastAPI):
                     "transport": "streamable_http",
                 }
             })
-            await _mcp_client.__aenter__()
-            mcp_tools = _mcp_client.get_tools()
+            # langchain-mcp-adapters 0.1.0+ 不再支持 context manager，直接调用 get_tools
+            mcp_tools = await _mcp_client.get_tools()
             print(f"[MCP Client] Tavily MCP connected — {len(mcp_tools)} tools: {[t.name for t in mcp_tools]}")
         except Exception as e:
             print(f"[MCP Client] Tavily MCP failed: {e} — falling back to direct SDK")
@@ -128,11 +156,7 @@ async def lifespan(app: FastAPI):
     agent = build_graph(mcp_tools=mcp_tools or None)
     yield
 
-    if _mcp_client:
-        try:
-            await _mcp_client.__aexit__(None, None, None)
-        except Exception:
-            pass
+    # 新版本无需显式关闭，_mcp_client 仅保留供后续扩展
 
 
 app = FastAPI(title="A股分析Agent API", lifespan=lifespan)
@@ -169,103 +193,66 @@ async def chat(req: ChatRequest):
     messages.append(HumanMessage(content=req.message))
 
     async def event_stream():
-        q: queue.Queue = queue.Queue()
-        loop = asyncio.get_event_loop()
+        all_references: list[dict] = []
+        full_chunks: list[str] = []
+        emitted_tools: set[str] = set()
 
-        def run_sync():
-            all_references: list[dict] = []
-            full_chunks: list[str] = []
-            emitted_tools: set[str] = set()
+        # 使用 astream 以支持 MCP 等异步工具（sync stream 会报 StructuredTool does not support sync invocation）
+        async for msg, metadata in agent.astream(
+            {"messages": messages},
+            stream_mode="messages",
+        ):
+            node = metadata.get("langgraph_node", "")
 
-            for msg, metadata in agent.stream(
-                {"messages": messages},
-                stream_mode="messages",
+            if isinstance(msg, AIMessage) and msg.tool_calls and node == "chatbot":
+                for tc in msg.tool_calls:
+                    name = tc.get('name', '')
+                    if not name:
+                        continue
+                    tc_id = tc.get('id', name)
+                    if tc_id in emitted_tools:
+                        continue
+                    emitted_tools.add(tc_id)
+                    icon, display = TOOL_DISPLAY.get(name, ('🔧', name))
+                    yield f"data: {json.dumps({'type': 'tool_start', 'id': tc_id, 'name': name, 'icon': icon, 'displayName': display, 'inputSummary': _format_tool_input(name, tc.get('args', {}))}, ensure_ascii=False)}\n\n"
+
+            elif isinstance(msg, ToolMessage) and node == "tools":
+                content_str = _flatten_tool_content(msg.content)
+                refs = _extract_references(msg.name or '', content_str)
+                all_references.extend(refs)
+                yield f"data: {json.dumps({'type': 'tool_end', 'id': msg.tool_call_id or '', 'name': msg.name or ''}, ensure_ascii=False)}\n\n"
+
+            elif (
+                isinstance(msg, AIMessage)
+                and not msg.tool_calls
+                and msg.content
+                and node == "chatbot"
             ):
-                node = metadata.get("langgraph_node", "")
+                full_chunks.append(msg.content)
+                yield f"data: {json.dumps({'type': 'token', 'content': msg.content}, ensure_ascii=False)}\n\n"
 
-                if isinstance(msg, AIMessage) and msg.tool_calls and node == "chatbot":
-                    for tc in msg.tool_calls:
-                        name = tc.get('name', '')
-                        if not name:
-                            continue
-                        tc_id = tc.get('id', name)
-                        if tc_id in emitted_tools:
-                            continue
-                        emitted_tools.add(tc_id)
-                        icon, display = TOOL_DISPLAY.get(name, ('🔧', name))
-                        q.put({
-                            'type': 'tool_start',
-                            'id': tc_id,
-                            'name': name,
-                            'icon': icon,
-                            'displayName': display,
-                            'inputSummary': _format_tool_input(name, tc.get('args', {})),
-                        })
+        full_content = "".join(full_chunks)
 
-                elif isinstance(msg, ToolMessage) and node == "tools":
-                    content_str = msg.content if isinstance(msg.content, str) else str(msg.content)
-                    refs = _extract_references(msg.name or '', content_str)
-                    all_references.extend(refs)
-                    q.put({
-                        'type': 'tool_end',
-                        'id': msg.tool_call_id or '',
-                        'name': msg.name or '',
-                    })
+        images = []
+        png_paths = re.findall(r'[\w/._-]+\.png', full_content)
+        for p in png_paths:
+            p = p.strip('`').strip()
+            filename = os.path.basename(p)
+            chart_path = CHART_DIR / filename
+            if chart_path.exists():
+                images.append(f"/api/charts/{filename}")
 
-                elif (
-                    isinstance(msg, AIMessage)
-                    and not msg.tool_calls
-                    and msg.content
-                    and node == "chatbot"
-                ):
-                    full_chunks.append(msg.content)
-                    q.put({
-                        'type': 'token',
-                        'content': msg.content,
-                    })
+        seen_urls = set()
+        unique_refs = []
+        for r in all_references:
+            key = r['url'] or r['title']
+            if key not in seen_urls:
+                seen_urls.add(key)
+                unique_refs.append(r)
 
-            full_content = "".join(full_chunks)
-
-            images = []
-            png_paths = re.findall(r'[\w/._-]+\.png', full_content)
-            for p in png_paths:
-                p = p.strip('`').strip()
-                filename = os.path.basename(p)
-                chart_path = CHART_DIR / filename
-                if chart_path.exists():
-                    images.append(f"/api/charts/{filename}")
-
-            seen_urls = set()
-            unique_refs = []
-            for r in all_references:
-                key = r['url'] or r['title']
-                if key not in seen_urls:
-                    seen_urls.add(key)
-                    unique_refs.append(r)
-
-            q.put({
-                'type': 'done',
-                'images': images,
-                'references': unique_refs,
-                'full_content': full_content,
-            })
-
-        loop.run_in_executor(None, run_sync)
-
-        while True:
-            try:
-                event = q.get_nowait()
-            except queue.Empty:
-                await asyncio.sleep(0.05)
-                continue
-
-            if event.get('type') == 'done':
-                full_content = event.pop('full_content', '')
-                yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
-                messages.append(AIMessage(content=full_content))
-                break
-
-            yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+        messages.append(AIMessage(content=full_content))
+        done_event = {'type': 'done', 'images': images, 'references': unique_refs}
+        yield f"data: {json.dumps(done_event, ensure_ascii=False)}\n\n"
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 

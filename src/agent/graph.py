@@ -11,7 +11,7 @@ from typing import Annotated, Literal
 from typing_extensions import TypedDict
 
 from langchain_openai import ChatOpenAI
-from langchain_core.messages import SystemMessage, BaseMessage
+from langchain_core.messages import SystemMessage, BaseMessage, ToolMessage
 from langgraph.graph import StateGraph, START, END
 from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode
@@ -40,6 +40,36 @@ BASE_TOOLS = (
 )
 
 
+def _flatten_tool_content(content) -> str:
+    """将 MCP 工具返回的 list 格式 content 转为字符串，避免 API invalid type: sequence 错误。"""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = []
+        for block in content:
+            if isinstance(block, dict):
+                parts.append(block.get("text", block.get("content", str(block))))
+            elif isinstance(block, str):
+                parts.append(block)
+        return "\n".join(parts)
+    return str(content)
+
+
+def _normalize_messages(messages: list[BaseMessage]) -> list[BaseMessage]:
+    """确保 ToolMessage content 为字符串，兼容 OpenAI/DeepSeek API。"""
+    out = []
+    for msg in messages:
+        if isinstance(msg, ToolMessage) and not isinstance(msg.content, str):
+            out.append(ToolMessage(
+                content=_flatten_tool_content(msg.content),
+                tool_call_id=msg.tool_call_id,
+                name=getattr(msg, "name", None),
+            ))
+        else:
+            out.append(msg)
+    return out
+
+
 class AgentState(TypedDict):
     messages: Annotated[list[BaseMessage], add_messages]
 
@@ -59,7 +89,7 @@ def build_llm():
 
 def chatbot(state: AgentState) -> dict:
     llm = build_llm()
-    messages = state["messages"]
+    messages = _normalize_messages(state["messages"])
     if not messages or not isinstance(messages[0], SystemMessage):
         prompt = SYSTEM_PROMPT
         skill_desc = get_skill_descriptions()
