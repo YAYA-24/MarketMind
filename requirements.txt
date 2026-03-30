@@ -37,5 +37,8 @@ fastapi>=0.115
 uvicorn>=0.30
 python-multipart>=0.0.9
 
+# 微信 ClawBot 接入
+qrcode[pil]>=7.4
+
 # 环境配置
 python-dotenv>=1.0

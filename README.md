@@ -70,7 +70,23 @@ cd web && npm install && npm run dev
 
 打开 `http://localhost:5173` 即可使用。
 
-**方式二：命令行**
+**方式二：微信对话**
+
+通过微信 ClawBot 插件，直接在微信里和 Agent 对话：
+
+```bash
+# 首次使用：扫码登录微信 ClawBot
+python -m wechat.auth
+
+# 启动微信 bot（长驻进程）
+python -m wechat.bot
+```
+
+在微信中给 ClawBot 发消息即可，例如「查一下茅台现在的行情」「分析比亚迪的技术指标」。
+
+> 前提：微信需要开启 ClawBot 插件（微信 → 我 → 设置 → 插件 → ClawBot）。
+
+**方式三：命令行**
 
 ```bash
 python main.py
@@ -178,6 +194,11 @@ marketmind/
 │   ├── mcp.json                     # Cursor MCP 配置 (cwd 使用 ${workspaceFolder})
 │   └── skills/                      # 符号链接 → ../skills/（Cursor 从此处发现 Skill）
 │
+├── wechat/                          # 微信 ClawBot 接入
+│   ├── auth.py                      #   扫码登录（获取 bot_token）
+│   ├── bot.py                       #   主循环：收消息 → Agent → 回复微信
+│   └── client.py                    #   ilink API 客户端
+│
 ├── mcp_server/                      # [可选] MCP Server
 │   └── server.py                    #   复用 src.skills，供 Cursor/Claude Desktop 调用
 │
@@ -212,6 +233,8 @@ marketmind/
 ## Roadmap
 
 - [x] 更强的中文 Embedding 模型（BGE 替代 MiniLM）
+- [x] 微信接入（通过 ClawBot ilink API）
+- [ ] 微信图片回传（K 线图通过 CDN 发送）
 - [ ] LangGraph Checkpoint 对话持久化
 - [ ] 异步工具调用提升并发性能
 - [ ] 更多数据源（港股、美股、基金）
